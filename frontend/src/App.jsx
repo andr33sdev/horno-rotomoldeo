@@ -71,6 +71,9 @@ const GestorUsuarios = lazy(() => import("./pages/GestorUsuarios.jsx"));
 const Home = lazy(() => import("./pages/Home.jsx"));
 const TableroPage = lazy(() => import("./pages/TableroPage.jsx"));
 const SolicitudesMlPage = lazy(() => import("./pages/SolicitudesMlPage.jsx"));
+const AnalisisProduccionPage = lazy(
+  () => import("./pages/AnalisisProduccionPage.jsx"),
+);
 
 const NAV_LINKS = [
   { path: "/", label: "Inicio", icon: <FaChartPie /> }, // 👈 Al no tener moduloReq, se vuelve visible para TODO el personal automáticamente
@@ -115,6 +118,12 @@ const NAV_LINKS = [
     label: "Registrar",
     icon: <FaPlus />,
     moduloReq: "REGISTRO",
+  },
+  {
+    path: "/analisis-produccion",
+    label: "Análisis Producción",
+    icon: <FaIndustry />,
+    moduloReq: "METRICAS",
   },
   {
     path: "/logistica",
@@ -223,6 +232,32 @@ const ProtectedRoute = ({ children, requiredModule }) => {
       </div>
     );
   }
+  return children;
+};
+
+const GerenciaProtectedRoute = ({ children }) => {
+  const { token, user } = getAuthData();
+  const location = useLocation();
+
+  if (!token || !user) {
+    const returnTo = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/login?returnTo=${returnTo}`} replace />;
+  }
+
+  const rolNormalizado = (user.rol || "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  // 🌟 Ahora permitimos tanto a GERENCIA como a JEFE PRODUCCION
+  if (rolNormalizado !== "GERENCIA" && rolNormalizado !== "JEFE PRODUCCION") {
+    console.warn(
+      "⛔ Acceso denegado a " + location.pathname + ". Rol actual:",
+      user.rol,
+    );
+    return <Navigate to="/" replace />;
+  }
+
   return children;
 };
 
@@ -737,6 +772,16 @@ export default function App() {
                   <AnalisisPedidos />
                 </Layout>
               </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/analisis-produccion"
+            element={
+              <GerenciaProtectedRoute>
+                <Layout>
+                  <AnalisisProduccionPage />
+                </Layout>
+              </GerenciaProtectedRoute>
             }
           />
           <Route

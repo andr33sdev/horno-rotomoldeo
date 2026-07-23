@@ -6,7 +6,112 @@ const { protect } = require("../middleware/auth");
 
 router.use(protect);
 
-// --- HELPERS MATEMÁTICOS ---
+// --- COMPRESOR DE ENCABEZADOS ULTRA-TOLERANTE ---
+function normalizarEncabezado(txt) {
+  if (!txt) return "";
+  return txt
+    .toString()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Quita acentos
+    .replace(/[^A-Z0-9]/g, ""); // Elimina puntos, espacios, \n, \r y símbolos
+}
+
+// 🛡️ LIMPIADOR NUMÉRICO EVOLUCIONADO: Elimina los errores #N/D de fórmulas rotas
+function limpiarNumero(val) {
+  if (
+    val === undefined ||
+    val === null ||
+    val === "" ||
+    val === "NaN" ||
+    val === "-"
+  )
+    return 0;
+  if (typeof val === "number") return val;
+
+  const textoStr = val.toString().trim().toUpperCase();
+  if (
+    textoStr.includes("N/D") ||
+    textoStr.includes("N/A") ||
+    textoStr.includes("#")
+  )
+    return 0;
+
+  let limpio = textoStr.replace(/[^0-9.,-]/g, "");
+  if (limpio.includes(",") && limpio.includes(".")) {
+    limpio = limpio.replace(/\./g, "").replace(",", ".");
+  } else if (limpio.includes(",")) {
+    limpio = limpio.replace(",", ".");
+  }
+  const numero = parseFloat(limpio);
+  return isNaN(numero) ? 0 : numero;
+}
+
+// --- EXTRACTOR DE MESES SEGURO ---
+function extraerMesAnio(valor) {
+  if (!valor) return "Otros";
+
+  if (typeof valor === "number") {
+    const fechaBase = new Date(1899, 11, 30);
+    const fechaObj = new Date(fechaBase.getTime() + valor * 86400000);
+    if (!isNaN(fechaObj.getTime())) {
+      const meses = [
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Abril",
+        "Mayo",
+        "Junio",
+        "Julio",
+        "Agosto",
+        "Septiembre",
+        "Octubre",
+        "Noviembre",
+        "Diciembre",
+      ];
+      return meses[fechaObj.getMonth()];
+    }
+  }
+
+  const txt = valor.toString().toLowerCase().trim();
+  if (txt.includes("ene")) return "Enero";
+  if (txt.includes("feb")) return "Febrero";
+  if (txt.includes("mar")) return "Marzo";
+  if (txt.includes("abr")) return "Abril";
+  if (txt.includes("may")) return "Mayo";
+  if (txt.includes("jun")) return "Junio";
+  if (txt.includes("jul")) return "Julio";
+  if (txt.includes("ago")) return "Agosto";
+  if (txt.includes("sep")) return "Septiembre";
+  if (txt.includes("oct")) return "Octubre";
+  if (txt.includes("nov")) return "Noviembre";
+  if (txt.includes("dic")) return "Diciembre";
+
+  if (txt.includes("-") || txt.includes("/")) {
+    const partes = txt.split(/[\/\-]/);
+    if (partes.length >= 2) {
+      const mesIdx = parseInt(partes[1], 10);
+      const meses = [
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Abril",
+        "Mayo",
+        "Junio",
+        "Julio",
+        "Agosto",
+        "Septiembre",
+        "Octubre",
+        "Noviembre",
+        "Diciembre",
+      ];
+      return meses[mesIdx - 1] || "Otros";
+    }
+  }
+  return "Otros";
+}
+
+// --- HELPERS MATEMÁTICOS HISTÓRICOS ---
 function calcularPendiente(valores) {
   const n = valores.length;
   if (n < 2) return 0;
@@ -34,12 +139,138 @@ function calcularEstabilidad(valores) {
   return Math.sqrt(variance) / media;
 }
 
+// --- RUTA GET BASE DE CONTROL ---
+router.get("/", async (req, res) => {
+  try {
+    res.json({
+      global: {
+        eficienciaGral: 0,
+        scrap: 0,
+        piezasBuenas: 0,
+        piezasFallas: 0,
+        kgTotales: 0,
+        kgFallas: 0,
+      },
+      plantas: [],
+      topArticulos: [],
+      meses: [],
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Fallo inicialización de la ruta." });
+  }
+});
+
+// ====================================================================
+// 📊 ENDPOINT DE PROCESAMIENTO ANALÍTICO PARA CARGA (100% MEMORIA BI)
+// ====================================================================
+router.post("/procesar-planilla-produccion", async (req, res) => {
+  try {
+    const filas = req.body.filas || req.body.rows;
+    if (!filas || !Array.isArray(filas) || filas.length === 0) {
+      return res.status(400).json({ error: "Datos de planilla no válidos." });
+    }
+
+    const filaEncabezados = filas.find((f) =>
+      Object.values(f).some(
+        (v) => v && v.toString().toUpperCase().includes("FECHA"),
+      ),
+    );
+
+    const mapaColumnas = {};
+    if (filaEncabezados) {
+      Object.keys(filaEncabezados).forEach((key) => {
+        mapaColumnas[key] = normalizarEncabezado(filaEncabezados[key]);
+      });
+    }
+
+    const registrosProcesados = [];
+    const setMeses = new Set();
+    const setMateriales = new Set();
+    const setProductos = new Set();
+
+    filas.forEach((fila) => {
+      const filaLimpia = {};
+      Object.keys(fila).forEach((key) => {
+        const dest = mapaColumnas[key] || normalizarEncabezado(key);
+        filaLimpia[dest] = fila[key];
+      });
+
+      if (
+        filaLimpia["FECHA"] === "FECHA" ||
+        (!filaLimpia["KGTOTAL"] && !filaLimpia["CANTBUENOS"])
+      )
+        return;
+
+      const mes = extraerMesAnio(filaLimpia["PERIODO"] || filaLimpia["FECHA"]);
+      if (mes === "Otros") return;
+
+      const loteProd = String(filaLimpia["LOTEPRODUCCION"] || "").trim();
+      const articulo = String(filaLimpia["ARTICULO"] || "OTROS")
+        .trim()
+        .toUpperCase();
+
+      const kgTotal = limpiarNumero(filaLimpia["KGTOTAL"]);
+      const kgScrap = limpiarNumero(filaLimpia["KGFALLAS"]);
+      const buenos = limpiarNumero(filaLimpia["CANTBUENOS"]);
+      const fallas = limpiarNumero(filaLimpia["CANTFALLAS"]);
+
+      let planta = "Otras";
+      if (loteProd.startsWith("01")) planta = "Planta 26 de Abril";
+      else if (loteProd.startsWith("02")) planta = "Planta Bagnat 37";
+
+      // Extraer dinámicamente la lista de materiales usados en la fila
+      const materialesFila = [];
+      [
+        "MATERIAPRIMA1",
+        "MATERIAPRIMA2",
+        "MATERIAPRIMA3",
+        "MATERIAPRIMA4",
+      ].forEach((colKey) => {
+        if (
+          filaLimpia[colKey] &&
+          filaLimpia[colKey].toString().trim() !== "" &&
+          filaLimpia[colKey].toString().trim() !== "-"
+        ) {
+          const matNombre = filaLimpia[colKey].toString().trim().toUpperCase();
+          materialesFila.push(matNombre);
+          setMateriales.add(matNombre);
+        }
+      });
+
+      setMeses.add(mes);
+      setProductos.add(articulo);
+
+      registrosProcesados.push({
+        mes,
+        planta,
+        articulo,
+        materiales: materialesFila,
+        kgTotal,
+        kgScrap,
+        buenos,
+        fallas,
+      });
+    });
+
+    res.json({
+      meses: Array.from(setMeses),
+      materiales: Array.from(setMateriales).sort(),
+      productos: Array.from(setProductos).sort(),
+      registros: registrosProcesados,
+    });
+  } catch (e) {
+    console.error(e);
+    res
+      .status(500)
+      .json({ error: "Fallo en el procesamiento analítico del servidor." });
+  }
+});
+
+// ====================================================================
+// 📈 TENDENCIAS HISTÓRICAS DE PEDIDOS (MANTENIDA INTEGRAL)
+// ====================================================================
 router.get("/tendencias", async (req, res) => {
   try {
-    // NOTA: Usamos '::DATE' para convertir el texto a fecha y '::NUMERIC' para la cantidad.
-    // Usamos la tabla correcta: 'pedidos_clientes'
-
-    // 1. CONSULTA HISTÓRICA MENSUAL (PRODUCTOS)
     const queryMensualProd = `
       SELECT 
         to_char(fecha::DATE, 'YYYY-MM') as periodo,
@@ -52,7 +283,6 @@ router.get("/tendencias", async (req, res) => {
       ORDER BY 1 ASC
     `;
 
-    // 2. CONSULTA SEMANAL
     const querySemanal = `
       SELECT 
         to_char(fecha::DATE, 'IYYY-IW') as periodo,
@@ -65,7 +295,6 @@ router.get("/tendencias", async (req, res) => {
       ORDER BY 1 ASC
     `;
 
-    // 3. CONSULTA GLOBALES (12 MESES)
     const queryGlobal = `
       SELECT 
         to_char(fecha::DATE, 'YYYY-MM') as mes_key,
@@ -79,28 +308,11 @@ router.get("/tendencias", async (req, res) => {
       ORDER BY 1 ASC
     `;
 
-    // 4. CONSULTA MTD (MES ACTUAL vs MES PASADO)
     const queryMTD = `
       SELECT 
-        -- Actual Total
-        COALESCE(SUM(CASE 
-            WHEN date_trunc('month', fecha::DATE) = date_trunc('month', NOW()) 
-            THEN REGEXP_REPLACE(cantidad, '[^0-9.]', '', 'g')::NUMERIC ELSE 0 
-        END), 0) as actual_total,
-        
-        -- Anterior Mismo Día
-        COALESCE(SUM(CASE 
-            WHEN date_trunc('month', fecha::DATE) = date_trunc('month', NOW() - INTERVAL '1 month') 
-                 AND EXTRACT(DAY FROM fecha::DATE) <= EXTRACT(DAY FROM NOW())
-            THEN REGEXP_REPLACE(cantidad, '[^0-9.]', '', 'g')::NUMERIC ELSE 0 
-        END), 0) as anterior_mismo_dia,
-
-        -- Anterior Total Final
-        COALESCE(SUM(CASE 
-            WHEN date_trunc('month', fecha::DATE) = date_trunc('month', NOW() - INTERVAL '1 month') 
-            THEN REGEXP_REPLACE(cantidad, '[^0-9.]', '', 'g')::NUMERIC ELSE 0 
-        END), 0) as anterior_total_final
-
+        COALESCE(SUM(CASE WHEN date_trunc('month', fecha::DATE) = date_trunc('month', NOW()) THEN REGEXP_REPLACE(cantidad, '[^0-9.]', '', 'g')::NUMERIC ELSE 0 END), 0) as actual_total,
+        COALESCE(SUM(CASE WHEN date_trunc('month', fecha::DATE) = date_trunc('month', NOW() - INTERVAL '1 month') AND EXTRACT(DAY FROM fecha::DATE) <= EXTRACT(DAY FROM NOW()) THEN REGEXP_REPLACE(cantidad, '[^0-9.]', '', 'g')::NUMERIC ELSE 0 END), 0) as anterior_mismo_dia,
+        COALESCE(SUM(CASE WHEN date_trunc('month', fecha::DATE) = date_trunc('month', NOW() - INTERVAL '1 month') THEN REGEXP_REPLACE(cantidad, '[^0-9.]', '', 'g')::NUMERIC ELSE 0 END), 0) as anterior_total_final
       FROM pedidos_clientes
       WHERE fecha::DATE >= date_trunc('month', NOW() - INTERVAL '1 month')
       AND (estado IS NULL OR UPPER(estado) NOT LIKE '%CANCELADO%')
@@ -113,7 +325,6 @@ router.get("/tendencias", async (req, res) => {
       db.query(queryMTD),
     ]);
 
-    // --- PROCESAMIENTO TENDENCIAS PRODUCTOS ---
     const mapMensual = {};
     const meses = [...new Set(resMensual.rows.map((r) => r.periodo))].sort();
     const mesActualIso = new Date().toISOString().slice(0, 7);
@@ -132,11 +343,11 @@ router.get("/tendencias", async (req, res) => {
         const historia = mapMensual[modelo];
         const total = historia.reduce((a, b) => a + b, 0);
         const ceros = historia.filter((v) => v === 0).length;
-
         if (ceros > 2 || total < 20) return null;
 
         return {
           modelo,
+          history: historia,
           historia,
           pendiente: calcularPendiente(historia),
           estabilidad: calcularEstabilidad(historia),
@@ -156,7 +367,6 @@ router.get("/tendencias", async (req, res) => {
       .filter((t) => Math.abs(t.pendiente) < 10 && t.estabilidad < 0.4)
       .sort((a, b) => b.total - a.total);
 
-    // --- PROCESAMIENTO SEMANAL ---
     const mapSemanal = {};
     const semanas = [...new Set(resSemanal.rows.map((r) => r.periodo))].sort();
     const ultimas8Semanas = semanas.slice(-9, -1);
@@ -182,17 +392,14 @@ router.get("/tendencias", async (req, res) => {
       .filter((p) => p.crecimiento > 20)
       .sort((a, b) => b.crecimiento - a.crecimiento);
 
-    // --- PROCESAMIENTO GLOBALES ---
     const graficoGlobal = resGlobal.rows.map((r) => ({
       mes_nombre: r.mes_nombre,
       total: Number(r.total),
       ml: Number(r.ml),
     }));
 
-    // --- CÁLCULO DE PROYECCIÓN (RUN RATE) ---
     const mtdRaw = resMTD.rows[0] || {};
     const actualMTD = Number(mtdRaw.actual_total || 0);
-
     const hoy = new Date();
     const diaActual = hoy.getDate();
     const diasEnMes = new Date(
@@ -202,7 +409,6 @@ router.get("/tendencias", async (req, res) => {
     ).getDate();
 
     let proyeccionGlobal = 0;
-
     if (actualMTD > 0 && diaActual > 0) {
       proyeccionGlobal = Math.round((actualMTD / diaActual) * diasEnMes);
     } else {
@@ -247,11 +453,12 @@ router.get("/tendencias", async (req, res) => {
   }
 });
 
-// --- RUNWAY DE INSUMOS (RELOJ DE ARENA) ---
+// ====================================================================
+// ⏳ RUNWAY DE INSUMOS MANTENIDA INTACTA (RELOJ DE ARENA)
+// ====================================================================
 router.get("/insumos-runway", async (req, res) => {
   try {
     const diasAnalisis = 90;
-
     const { rows: mps } = await db.query(
       "SELECT id, codigo, nombre, stock_actual, stock_minimo FROM materias_primas",
     );
@@ -264,7 +471,7 @@ router.get("/insumos-runway", async (req, res) => {
         GROUP BY UPPER(modelo)
     `);
 
-    const recetasRes = await db.query(`
+    const recipesRes = await db.query(`
         SELECT UPPER(s.nombre) as modelo, mp.id as mp_id, rs.cantidad
         FROM recetas_semielaborados rs
         JOIN semielaborados s ON rs.semielaborado_id = s.id
@@ -274,11 +481,10 @@ router.get("/insumos-runway", async (req, res) => {
     const consumoDiarioMap = {};
 
     ventasRes.rows.forEach((venta) => {
-      const recetasDelModelo = recetasRes.rows.filter(
+      const recipesDelModelo = recipesRes.rows.filter(
         (r) => r.modelo === venta.modelo,
       );
-
-      recetasDelModelo.forEach((ingrediente) => {
+      recipesDelModelo.forEach((ingrediente) => {
         const consumoTotalPeriodo = ingrediente.cantidad * venta.total_vendido;
         const consumoDiario = consumoTotalPeriodo / diasAnalisis;
 
@@ -325,7 +531,6 @@ router.get("/insumos-runway", async (req, res) => {
     const reporteOrdenado = reporte.sort(
       (a, b) => a.dias_restantes - b.dias_restantes,
     );
-
     res.json(reporteOrdenado);
   } catch (e) {
     console.error("Error Runway:", e);

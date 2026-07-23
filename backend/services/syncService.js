@@ -14,7 +14,6 @@ function parsearFechaExcel(valor) {
   if (!valor) return null;
   if (valor instanceof Date) return isNaN(valor.getTime()) ? null : valor;
 
-  // Caso Número de Serie Excel
   if (typeof valor === "number") {
     const fechaBase = new Date(1899, 11, 30);
     const dias = Math.floor(valor);
@@ -23,14 +22,13 @@ function parsearFechaExcel(valor) {
     return isNaN(fecha.getTime()) ? null : fecha;
   }
 
-  // Caso Texto (DD/MM/YY o DD/MM/YYYY)
   if (typeof valor === "string") {
     const partes = valor.trim().split("/");
     if (partes.length === 3) {
       let dia = parseInt(partes[0], 10);
-      let mes = parseInt(partes[1], 10) - 1; // Meses en JS son 0-11
+      let mes = parseInt(partes[1], 10) - 1;
       let anio = parseInt(partes[2], 10);
-      if (anio < 100) anio += 2000; // Corrección año corto (26 -> 2026)
+      if (anio < 100) anio += 2000;
       const fecha = new Date(anio, mes, dia);
       return isNaN(fecha.getTime()) ? null : fecha;
     }
@@ -64,12 +62,10 @@ function limpiarCodigo(cod) {
   return cod.toString().trim().toUpperCase();
 }
 
-// --- HELPER NUMÉRICO MEJORADO (SOPORTA MONEDAS $ Y ESPACIOS) ---
 function limpiarNumero(val) {
   if (val === undefined || val === null || val === "") return 0;
   if (typeof val === "number") return val;
 
-  // Limpiamos signo $, letras y espacios ("$ 10.000,50" -> "10.000,50")
   let limpio = val
     .toString()
     .trim()
@@ -409,7 +405,7 @@ async function sincronizarStockSemielaborados() {
 }
 
 // =====================================================
-// 4. SYNC MATERIAS PRIMAS (NUEVO: CON PRECIO)
+// 4. SYNC MATERIAS PRIMAS (CON PRECIO)
 // =====================================================
 async function sincronizarMateriasPrimas() {
   const client = await db.connect();
@@ -439,7 +435,7 @@ async function sincronizarMateriasPrimas() {
         nombre = null,
         stock = 0,
         minimo = 0,
-        precio = 0; // NUEVA VARIABLE PARA EL PRECIO
+        precio = 0;
 
       for (const key of Object.keys(row)) {
         const kSin = normalizarEncabezado(key).replace(/\s+/g, "");
@@ -461,13 +457,11 @@ async function sincronizarMateriasPrimas() {
           kSin.includes("PRECIO") ||
           kSin.includes("VALOR")
         ) {
-          // CAPTURAMOS EL PRECIO DE LA COLUMNA
           precio = limpiarNumero(row[key]);
         }
       }
 
       if (codigo && nombre && nombre.trim() !== "" && codigo.length < 30) {
-        // AGREGAMOS PRECIO AL ARRAY DE VALORES
         mapaMP.set(codigo, [codigo, nombre, stock, minimo, precio, new Date()]);
       }
     }
@@ -476,7 +470,6 @@ async function sincronizarMateriasPrimas() {
     if (vals.length > 0) {
       await client.query("BEGIN");
 
-      // ACTUALIZAMOS EL INSERT PARA INCLUIR "PRECIO"
       await client.query(
         format(
           `INSERT INTO materias_primas (codigo, nombre, stock_actual, stock_minimo, precio, ultima_actualizacion) 

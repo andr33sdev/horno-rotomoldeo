@@ -1181,6 +1181,12 @@ export default function ChangelogPage() {
                               <option value="Reflectiva Avery">
                                 Reflectiva Avery
                               </option>
+                              <option value="Reflectiva Prograf">
+                                Reflectiva Prograf
+                              </option>
+                              <option value="Reflectiva China 3M">
+                                Reflectiva China 3M
+                              </option>
                             </select>
                             <select
                               className="bg-slate-50 border border-slate-200 rounded p-1.5 text-xs"

@@ -48,14 +48,15 @@ const rrhhRoutes = require("./routes/rrhh");
 const changelogRoutes = require("./routes/changelog");
 const sugerenciasRoutes = require("./routes/sugerencias");
 const depositoRoutes = require("./routes/deposito");
-const tableroRoutes = require("./routes/tablero"); // <-- RE-INCORPORADO
-const solicitudesMlRoutes = require("./routes/solicitudesMl"); // <-- RE-INCORPORADO
+const tableroRoutes = require("./routes/tablero");
+const solicitudesMlRoutes = require("./routes/solicitudesMl");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // ==========================================
 // FUNCIÓN GLOBAL DE NOTIFICACIONES
@@ -108,8 +109,8 @@ app.use("/api/rrhh", protect, rrhhRoutes);
 app.use("/api/changelog", protect, changelogRoutes);
 app.use("/api/sugerencias", protect, sugerenciasRoutes);
 app.use("/api/deposito", protect, depositoRoutes);
-app.use("/api/tablero", protect, tableroRoutes); // <-- ACTIVADO CON JWT
-app.use("/api/solicitudes-ml", protect, solicitudesMlRoutes); // <-- ACTIVADO CON JWT
+app.use("/api/tablero", protect, tableroRoutes);
+app.use("/api/solicitudes-ml", protect, solicitudesMlRoutes);
 
 // ==========================================
 // INICIO DE SERVICIOS
@@ -123,6 +124,7 @@ async function iniciarServidor() {
 
     sincronizarBaseDeDatos();
     sincronizarPedidos();
+
     setInterval(sincronizarBaseDeDatos, 2 * 60 * 1000);
     setInterval(sincronizarPedidos, 15 * 60 * 1000);
 
